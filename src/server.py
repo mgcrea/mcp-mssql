@@ -32,7 +32,7 @@ VERSION = "0.1.0"
 # K8S internal service — no DNS rebinding protection needed
 security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-mcp = FastMCP(name=NAME, transport_security=security_settings, streamable_http_path="/")
+mcp = FastMCP(name=NAME, transport_security=security_settings, streamable_http_path="/mcp")
 
 register_mssql_tools(mcp)
 logger.info("registered_mssql_tools")
@@ -80,7 +80,7 @@ def main():
         routes=[
             Route("/healthz", healthz),
             Route("/", root),
-            Mount("/mcp", app=mcp.streamable_http_app()),
+            Mount("/", app=mcp.streamable_http_app()),
             Mount("/", app=mcp.sse_app()),
         ],
         lifespan=lifespan,
