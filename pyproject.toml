@@ -29,6 +29,9 @@ build-backend = "hatchling.build"
 packages = ["src"]
 sources = {"src" = ""}
 
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 120
