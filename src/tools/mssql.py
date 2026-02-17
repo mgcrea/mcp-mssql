@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 from audit import audit_log
 from config import get_mssql_config
+from sql_validation import ReadOnlyViolationError, validate_readonly_query
 
 # Timeout configuration (seconds)
 LOGIN_TIMEOUT = 10
@@ -27,14 +28,17 @@ def register_mssql_tools(mcp: FastMCP) -> None:
             database=config.database,
             login_timeout=LOGIN_TIMEOUT,
             timeout=QUERY_TIMEOUT,
+            read_only=config.readonly,
         )
 
     def _sync_mssql_query(query: str) -> str:
         """Synchronous MSSQL query execution."""
-        # Validate read-only query
-        query_upper = query.strip().upper()
-        if not query_upper.startswith("SELECT"):
-            return "Error: Only SELECT queries are allowed. This is a read-only connection."
+        config = get_mssql_config()
+        if config.readonly:
+            try:
+                validate_readonly_query(query)
+            except ReadOnlyViolationError as e:
+                return f"Error: {e}"
 
         with audit_log("mssql_query", {"query": query}):
             with _get_connection() as conn:

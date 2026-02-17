@@ -13,6 +13,7 @@ class MSSQLConfig:
     user: str
     password: str
     database: str
+    readonly: bool
 
 
 def get_mssql_config() -> MSSQLConfig:
@@ -23,4 +24,5 @@ def get_mssql_config() -> MSSQLConfig:
         user=os.environ.get("MSSQL_USER", "sa"),
         password=os.environ.get("MSSQL_PASSWORD", ""),
         database=os.environ.get("MSSQL_DB", "master"),
+        readonly=os.environ.get("MSSQL_READONLY", "true").lower() in ("true", "1", "yes"),
     )
