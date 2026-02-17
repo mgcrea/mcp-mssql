@@ -5,9 +5,9 @@ import asyncio
 import pymssql
 from mcp.server.fastmcp import FastMCP
 
-from audit import audit_log
-from config import get_mssql_config
-from sql_validation import ReadOnlyViolationError, validate_readonly_query
+from ..audit import audit_log
+from ..config import get_mssql_config
+from ..sql_validation import ReadOnlyViolationError, validate_readonly_query
 
 # Timeout configuration (seconds)
 LOGIN_TIMEOUT = 10

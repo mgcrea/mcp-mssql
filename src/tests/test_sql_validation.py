@@ -2,7 +2,7 @@
 
 import pytest
 
-from sql_validation import ReadOnlyViolationError, validate_readonly_query
+from mcp_mssql.sql_validation import ReadOnlyViolationError, validate_readonly_query
 
 
 class TestAllowedQueries:
