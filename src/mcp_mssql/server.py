@@ -53,14 +53,17 @@ def register_platform_resources(mcp: FastMCP) -> int:
     for slug, meta in resources.items():
         text = meta["text"]
 
-        @mcp.resource(
-            f"resource://{slug}",
-            name=meta.get("name", slug),
-            description=meta.get("description", ""),
-            mime_type="text/plain",
-        )
-        def _read(*, _text: str = text) -> str:
-            return _text
+        def _make_reader(s: str, m: dict, content: str):
+            @mcp.resource(
+                f"resource://{s}",
+                name=m.get("name", s),
+                description=m.get("description", ""),
+                mime_type="text/plain",
+            )
+            def _read() -> str:
+                return content
+
+        _make_reader(slug, meta, text)
 
     return len(resources)
 
