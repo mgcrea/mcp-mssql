@@ -30,6 +30,7 @@ packages = ["src/mcp_mssql"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py312"

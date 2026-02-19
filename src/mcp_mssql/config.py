@@ -16,7 +16,7 @@ class MSSQLConfig:
     readonly: bool
 
 
-def get_mssql_config() -> MSSQLConfig:
+def get_config() -> MSSQLConfig:
     """Load MSSQL configuration from environment variables."""
     return MSSQLConfig(
         host=os.environ.get("MSSQL_HOST", "localhost"),

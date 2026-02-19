@@ -6,7 +6,7 @@ import pymssql
 from mcp.server.fastmcp import FastMCP
 
 from ..audit import audit_log
-from ..config import get_mssql_config
+from ..config import get_config
 from ..sql_validation import ReadOnlyViolationError, validate_readonly_query
 
 # Timeout configuration (seconds)
@@ -19,7 +19,7 @@ def register_mssql_tools(mcp: FastMCP) -> None:
 
     def _get_connection():
         """Create MSSQL connection with timeout settings."""
-        config = get_mssql_config()
+        config = get_config()
         return pymssql.connect(
             server=config.host,
             port=config.port,
@@ -33,7 +33,7 @@ def register_mssql_tools(mcp: FastMCP) -> None:
 
     def _sync_mssql_query(query: str) -> str:
         """Synchronous MSSQL query execution."""
-        config = get_mssql_config()
+        config = get_config()
         if config.readonly:
             try:
                 validate_readonly_query(query)

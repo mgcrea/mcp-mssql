@@ -10,7 +10,7 @@ install: ## Install dependencies with uv
 	uv sync
 
 server: ## Run the MCP server locally
-	uv run uvicorn mcp_mssql.server:app --host 0.0.0.0 --port 8080 --reload
+	uv run mcp-mssql
 
 format: ## Format code
 	uv run ruff check --fix; uv run ruff format
