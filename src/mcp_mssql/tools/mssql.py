@@ -10,7 +10,9 @@ from ..config import get_config
 from ..sql_validation import ReadOnlyViolationError, validate_readonly_query
 
 # Timeout configuration (seconds)
-LOGIN_TIMEOUT = 10
+# Login timeout must be generous enough to survive Knative cold-start latency
+# when the DB server needs time to accept new connections.
+LOGIN_TIMEOUT = 30
 QUERY_TIMEOUT = 30
 
 
