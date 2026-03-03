@@ -1,6 +1,7 @@
 """MSSQL database tools for MCP."""
 
 import asyncio
+import os
 
 import pymssql
 from mcp.server.fastmcp import FastMCP
@@ -12,8 +13,8 @@ from ..sql_validation import ReadOnlyViolationError, validate_readonly_query
 # Timeout configuration (seconds)
 # Login timeout must be generous enough to survive Knative cold-start latency
 # when the DB server needs time to accept new connections.
-LOGIN_TIMEOUT = 30
-QUERY_TIMEOUT = 30
+LOGIN_TIMEOUT = int(os.environ.get("MSSQL_LOGIN_TIMEOUT", "30"))
+QUERY_TIMEOUT = int(os.environ.get("MSSQL_QUERY_TIMEOUT", "30"))
 
 
 def register_mssql_tools(mcp: FastMCP) -> None:
