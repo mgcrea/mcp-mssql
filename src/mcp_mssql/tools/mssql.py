@@ -118,16 +118,15 @@ def register_mssql_tools(mcp: FastMCP) -> None:
 
                     return "\n".join(result_lines)
 
-    @mcp.tool()
+    config = get_config()
+    if config.readonly:
+        query_desc = "Execute a read-only SQL query on the MSSQL database.\n\nArgs:\n    query: SQL SELECT query to execute. Only SELECT statements are allowed.\n\nReturns:\n    Query results as formatted text with column headers."
+    else:
+        query_desc = "Execute a SQL query on the MSSQL database. Supports both read and write queries (SELECT, INSERT, UPDATE, DELETE).\n\nArgs:\n    query: SQL query to execute. SELECT returns rows; write statements return affected row count.\n\nReturns:\n    Query results as formatted text, or affected row count for write operations."
+
+    @mcp.tool(description=query_desc)
     async def mssql_query(query: str) -> str:
-        """Execute a read-only SQL query on MSSQL database.
-
-        Args:
-            query: SQL SELECT query to execute. Only SELECT statements are allowed.
-
-        Returns:
-            Query results as formatted text with column headers.
-        """
+        """Execute a SQL query on the MSSQL database."""
         return await asyncio.to_thread(_sync_mssql_query, query)
 
     @mcp.tool()
