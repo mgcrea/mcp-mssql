@@ -38,15 +38,15 @@ make server
 
 ## Environment Variables
 
-| Variable         | Default     | Description                |
-| ---------------- | ----------- | -------------------------- |
-| `MSSQL_HOST`     | `localhost` | SQL Server host            |
-| `MSSQL_PORT`     | `1433`      | SQL Server port            |
-| `MSSQL_USER`     | `sa`        | Database user              |
-| `MSSQL_PASSWORD` |             | Database password          |
-| `MSSQL_DB`       | `master`    | Database name              |
-| `MSSQL_READONLY` | `true`      | Enforce read-only queries  |
-| `MCP_PORT`       | `8080`      | Server port                |
+| Variable         | Default     | Description               |
+| ---------------- | ----------- | ------------------------- |
+| `MSSQL_HOST`     | `localhost` | SQL Server host           |
+| `MSSQL_PORT`     | `1433`      | SQL Server port           |
+| `MSSQL_USER`     | `sa`        | Database user             |
+| `MSSQL_PASSWORD` |             | Database password         |
+| `MSSQL_DB`       | `master`    | Database name             |
+| `MSSQL_READONLY` | `true`      | Enforce read-only queries |
+| `MCP_PORT`       | `8080`      | Server port               |
 
 > Set `MSSQL_READONLY=false` to enable read/write mode (INSERT, UPDATE, DELETE, etc.).
 
