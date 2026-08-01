@@ -22,8 +22,9 @@ structlog.configure(
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
+from mcp_guard import GuardMiddleware  # noqa: E402
 
-from .tools.mssql import register_mssql_tools  # noqa: E402
+from .tools.mssql import guard, register_mssql_tools  # noqa: E402
 
 logger = structlog.get_logger()
 
@@ -94,15 +95,15 @@ def main():
         )
 
     async def root(request):
+        transports = {"streamable-http": "/mcp"}
+        if guard.config.sse_allowed:
+            transports["sse"] = "/sse"
         return JSONResponse(
             {
                 "name": NAME,
                 "version": VERSION,
                 "protocol": "mcp",
-                "transports": {
-                    "streamable-http": "/mcp",
-                    "sse": "/sse",
-                },
+                "transports": transports,
             }
         )
 
@@ -111,17 +112,35 @@ def main():
         async with mcp.session_manager.run():
             yield
 
-    app = Starlette(
-        routes=[
-            Route("/healthz", healthz),
-            Route("/", root),
-            Mount("/", app=mcp.streamable_http_app()),
-            Mount("/", app=mcp.sse_app()),
-        ],
-        lifespan=lifespan,
-    )
+    # The guard wraps the MCP app, not the whole Starlette app: Knative's readiness probe
+    # hits /healthz, and a Starlette-level middleware would demand a bearer token from the
+    # kubelet.
+    routes = [
+        Route("/healthz", healthz),
+        Route("/", root),
+        Mount("/", app=GuardMiddleware(mcp.streamable_http_app(), guard.config)),
+    ]
 
-    logger.info("starting_server", host=host, port=port)
+    if guard.config.sse_allowed:
+        routes.append(Mount("/", app=mcp.sse_app()))
+    else:
+        # Under SSE the long-lived connection that carried the Authorization header is not
+        # the request that carries a tool call, so the principal established at connect time
+        # cannot be attributed to the call. Mounting it while requiring auth would leave a
+        # second, unauthenticated door onto the same tools — which is the shape of the hole
+        # this whole change exists to close.
+        logger.info("sse_transport_disabled", reason="MCP_REQUIRE_AUTH is enabled")
+
+    app = Starlette(routes=routes, lifespan=lifespan)
+
+    logger.info(
+        "starting_server",
+        host=host,
+        port=port,
+        require_auth=guard.config.require_auth,
+        policy_enabled=guard.config.policy_enabled,
+        fail_mode=guard.config.fail_mode,
+    )
     uvicorn.run(app, host=host, port=port)
 
 
