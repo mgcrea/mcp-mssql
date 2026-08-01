@@ -5,7 +5,7 @@ import os
 
 import pymssql
 from mcp.server.fastmcp import FastMCP
-from mcp_guard import Guard, PolicyDenied, Resource, audit_call
+from mcp_guard import Guard, PolicyDenied, Resource, audit_call, guarded
 
 from ..config import get_config
 from ..sql_validation import ReadOnlyViolationError, validate_readonly_query
@@ -83,6 +83,11 @@ def register_mssql_tools(mcp: FastMCP) -> None:
             try:
                 referenced = extract_referenced_tables(query, database=config.database)
             except TableExtractionError as e:
+                # Fails closed without consulting the PDP, and deliberately so: the query
+                # cannot run when its read set is unknown, whatever policy would have said.
+                # `mcp_guard.UNDETERMINED` exists for tools that would otherwise pass `[]`
+                # here — an empty list means "touches nothing" and would be *allowed*. This
+                # one returns instead, which is the same answer for one fewer round trip.
                 record["decision"] = "deny"
                 record["reason"] = f"table extraction failed: {e}"
                 return f"Error: {e}"
@@ -140,12 +145,21 @@ def register_mssql_tools(mcp: FastMCP) -> None:
                     )
                     tables = [row[0] for row in cur.fetchall()]
 
-            visible = guard.filter_resources(
-                SQL_TABLE,
-                tables,
-                function_name="mssql_list_tables",
-                key=lambda name: normalize_table_name(schema, name),
-            )
+            try:
+                visible = guard.filter_resources(
+                    SQL_TABLE,
+                    tables,
+                    function_name="mssql_list_tables",
+                    key=lambda name: normalize_table_name(schema, name),
+                )
+            except PolicyDenied as denied:
+                # Denied the *function*, not particular tables. Saying so plainly is not an
+                # enumeration oracle — it names no table — and it stops the model retrying a
+                # listing it will never be allowed to make.
+                record["decision"] = "deny"
+                record["reason"] = denied.reason
+                return _denial_message(denied)
+
             record["decision"] = "allow" if len(visible) == len(tables) else "partial"
             record["resources"] = [normalize_table_name(schema, name) for name in visible]
 
@@ -219,12 +233,22 @@ def register_mssql_tools(mcp: FastMCP) -> None:
     else:
         query_desc = "Execute a SQL query on the MSSQL database. Supports both read and write queries (SELECT, INSERT, UPDATE, DELETE).\n\nArgs:\n    query: SQL query to execute. SELECT returns rows; write statements return affected row count.\n\nReturns:\n    Query results as formatted text, or affected row count for write operations."
 
+    # `@guarded` sits under `@mcp.tool()` on every handler, so the SDK registers the wrapper.
+    #
+    # **It is not optional and it is not decoration.** An MCP session is opened by whoever
+    # sent `initialize`, and on MCP SDK 1.x every later message is dispatched inside the task
+    # that spawned with it — so a principal bound only by the ASGI middleware stays the
+    # session opener's for the life of the session. Without this, two users sharing a session
+    # means the second one's query is authorized against the first one's grants, and the
+    # audit row names the wrong person. See `mcp_guard.request` for the mechanism.
     @mcp.tool(description=query_desc)
+    @guarded
     async def mssql_query(query: str) -> str:
         """Execute a SQL query on the MSSQL database."""
         return await asyncio.to_thread(_sync_mssql_query, query)
 
     @mcp.tool()
+    @guarded
     async def mssql_list_tables(schema: str = "dbo") -> str:
         """List all tables in the MSSQL database.
 
@@ -237,6 +261,7 @@ def register_mssql_tools(mcp: FastMCP) -> None:
         return await asyncio.to_thread(_sync_mssql_list_tables, schema)
 
     @mcp.tool()
+    @guarded
     async def mssql_describe_table(table_name: str, schema: str = "dbo") -> str:
         """Get the schema/structure of an MSSQL table.
 
@@ -251,6 +276,16 @@ def register_mssql_tools(mcp: FastMCP) -> None:
 
 
 def _denial_message(denied: PolicyDenied) -> str:
+    """What to tell the model when a call is refused.
+
+    An outage is not a denial. `PolicyUnavailable` subclasses `PolicyDenied` so the
+    fail-closed path cannot be forgotten, but saying "you do not have access to dbo.orders"
+    while the decision point is down sends the user to raise an access request for a
+    permission they already hold — and tells the model to stop trying something that will
+    work again in a minute.
+    """
+    if denied.is_outage:
+        return "Error: authorization is temporarily unavailable. Retry shortly; this is not a permissions problem."
     if denied.resources:
         names = ", ".join(sorted(r.split(":", 1)[-1] for r in denied.resources))
         return f"Error: You do not have access to {names}."
