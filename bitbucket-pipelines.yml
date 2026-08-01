@@ -1,0 +1,56 @@
+image: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+
+definitions:
+  caches:
+    uv: ~/.cache/uv/
+  yaml-anchors:
+    - &uv-install uv sync --frozen
+
+pipelines:
+  default:
+    - parallel:
+        - step:
+            name: Lint Code
+            script:
+              - *uv-install
+              - uv run ruff check src/
+            caches:
+              - uv
+        - step:
+            name: Check Formatting
+            script:
+              - *uv-install
+              - uv run ruff format --check src/
+            caches:
+              - uv
+        - step:
+            name: Run Tests
+            script:
+              - *uv-install
+              - uv run pytest -v
+            caches:
+              - uv
+    - step:
+        name: Release
+        script:
+          - apt-get update && apt-get install -y --no-install-recommends git
+          - echo -n "${HARBOR_PASSWORD}" | docker login --username "${HARBOR_USERNAME}" --password-stdin "${HARBOR_REGISTRY}"
+          - DOCKER_IMAGE=${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${BITBUCKET_REPO_SLUG}
+          - DOCKER_UNIQUE_TAG=${BITBUCKET_BRANCH}-${BITBUCKET_COMMIT:0:8}
+          - DOCKER_SHORT_TAG=${BITBUCKET_BRANCH}
+          - GIT_COMMIT_DATE=$(git log -1 --format=%ct)
+          - >-
+            docker build -t "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}" .
+            --build-arg GIT_COMMIT=${BITBUCKET_COMMIT}
+            --build-arg GIT_COMMIT_SHORT=${BITBUCKET_COMMIT:0:8}
+            --build-arg GIT_COMMIT_DATE=${GIT_COMMIT_DATE}
+          - docker tag "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}" "${DOCKER_IMAGE}:${DOCKER_SHORT_TAG}"
+          - docker push "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}"
+          - docker push "${DOCKER_IMAGE}:${DOCKER_SHORT_TAG}"
+          - |
+            if [ "${BITBUCKET_BRANCH}" = "main" ]; then
+              docker tag "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}" "${DOCKER_IMAGE}:latest"
+              docker push "${DOCKER_IMAGE}:latest"
+            fi
+        services:
+          - docker

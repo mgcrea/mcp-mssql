@@ -1,22 +1,5 @@
 # mcp-mssql
 
-<!-- markdownlint-disable MD033 -->
-<p align="center">
-  <a href="https://github.com/mgcrea/mcp-mssql/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/mgcrea/mcp-mssql/ci.yml?style=for-the-badge&branch=main" alt="build status" />
-  </a>
-  <a href="https://ghcr.io/mgcrea/mcp-mssql">
-    <img src="https://img.shields.io/badge/ghcr.io-mgcrea%2Fmcp--mssql-blue?style=for-the-badge" alt="docker image" />
-  </a>
-  <a href="https://github.com/mgcrea/mcp-mssql">
-    <img src="https://img.shields.io/badge/python-3.12+-blue?style=for-the-badge" alt="python version" />
-  </a>
-  <a href="https://github.com/mgcrea/mcp-mssql">
-    <img src="https://img.shields.io/github/license/mgcrea/mcp-mssql?style=for-the-badge" alt="license" />
-  </a>
-</p>
-<!-- markdownlint-enable MD033 -->
-
 MCP tool server providing SQL Server database access for AI agents.
 
 ## Tools
