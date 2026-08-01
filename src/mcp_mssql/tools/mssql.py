@@ -5,7 +5,7 @@ import os
 
 import pymssql
 from mcp.server.fastmcp import FastMCP
-from mcp_guard import Guard, PolicyDenied, Resource, audit_call, guarded
+from mcp_policy_guard import Guard, PolicyDenied, Resource, audit_call, guarded
 
 from ..config import get_config
 from ..sql_validation import ReadOnlyViolationError, validate_readonly_query
@@ -85,7 +85,7 @@ def register_mssql_tools(mcp: FastMCP) -> None:
             except TableExtractionError as e:
                 # Fails closed without consulting the PDP, and deliberately so: the query
                 # cannot run when its read set is unknown, whatever policy would have said.
-                # `mcp_guard.UNDETERMINED` exists for tools that would otherwise pass `[]`
+                # `mcp_policy_guard.UNDETERMINED` exists for tools that would otherwise pass `[]`
                 # here — an empty list means "touches nothing" and would be *allowed*. This
                 # one returns instead, which is the same answer for one fewer round trip.
                 record["decision"] = "deny"
@@ -240,7 +240,7 @@ def register_mssql_tools(mcp: FastMCP) -> None:
     # that spawned with it — so a principal bound only by the ASGI middleware stays the
     # session opener's for the life of the session. Without this, two users sharing a session
     # means the second one's query is authorized against the first one's grants, and the
-    # audit row names the wrong person. See `mcp_guard.request` for the mechanism.
+    # audit row names the wrong person. See `mcp_policy_guard.request` for the mechanism.
     @mcp.tool(description=query_desc)
     @guarded
     async def mssql_query(query: str) -> str:

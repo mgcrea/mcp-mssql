@@ -13,16 +13,11 @@ dependencies = [
     # Real T-SQL parsing for the table allow-list. A regex cannot do this job — see the
     # module docstring in src/mcp_mssql/table_extraction.py.
     "sqlglot>=30.14.0",
-    "mcp-guard>=0.1",
+    # Per-caller authentication and authorization. Resolved from PyPI, deliberately: a
+    # `[tool.uv.sources]` path to a sibling checkout works locally but not in the Docker
+    # build, whose context is this directory alone.
+    "mcp-policy-guard>=0.3",
 ]
-
-# TODO(deploy): mcp-guard is not published yet, so it resolves from a sibling checkout.
-# This works for local development and tests but NOT for the Docker build, whose context is
-# this directory alone — the image cannot see ../mcp-guard. Before the next image build,
-# publish mcp-guard and replace this block with a plain version requirement or a
-# `{ git = "...", tag = "v0.1.0" }` source.
-[tool.uv.sources]
-mcp-guard = { path = "../mcp-guard", editable = true }
 
 [project.scripts]
 mcp-mssql = "mcp_mssql.server:main"

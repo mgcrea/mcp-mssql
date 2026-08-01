@@ -1,7 +1,7 @@
 """How the tools behave once the guard is wired in.
 
 The call *ordering* is what is under test here, not the policy semantics — those live in
-mcp-guard's own suite. Specifically: nothing may open a database connection before the
+mcp-policy-guard's own suite. Specifically: nothing may open a database connection before the
 decision has been made, and a denial must not be distinguishable from absence in the
 responses where that distinction would be an enumeration oracle.
 """
@@ -12,7 +12,7 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
-from mcp_guard import Decision, PolicyDenied
+from mcp_policy_guard import Decision, PolicyDenied
 
 import mcp_mssql.tools.mssql as tools
 

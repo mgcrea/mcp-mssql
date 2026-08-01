@@ -15,8 +15,8 @@ import asyncio
 from dataclasses import replace
 
 import pytest
-from mcp_guard import GuardConfig, is_guarded
-from mcp_guard import routes as guard_routes
+from mcp_policy_guard import GuardConfig, is_guarded
+from mcp_policy_guard import routes as guard_routes
 
 import mcp_mssql.server as server
 

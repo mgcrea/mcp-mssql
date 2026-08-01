@@ -22,7 +22,7 @@ structlog.configure(
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
-from mcp_guard import routes as guard_routes  # noqa: E402
+from mcp_policy_guard import routes as guard_routes  # noqa: E402
 
 from .tools.mssql import guard, register_mssql_tools  # noqa: E402
 
@@ -112,7 +112,7 @@ def main():
         async with mcp.session_manager.run():
             yield
 
-    # `mcp_guard.routes` wraps the MCP app rather than the whole Starlette app — Knative's
+    # `mcp_policy_guard.routes` wraps the MCP app rather than the whole Starlette app — Knative's
     # readiness probe hits /healthz, and a Starlette-level middleware would demand a bearer
     # token from the kubelet — and mounts SSE, when permitted, at its own path.
     #
