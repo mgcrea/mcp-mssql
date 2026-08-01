@@ -57,7 +57,8 @@ every row into the pod and then into the model's context, and neither survives t
 
 ## Access control
 
-Per-caller authorization is provided by [mcp-guard](../mcp-guard), configured entirely
+Per-caller authorization is provided by
+[mcp-policy-guard](https://github.com/mgcrea/mcp-policy-guard), configured entirely
 through the `MCP_*` variables the rgis-workers platform injects — see that package's README
 for the full table. Two behaviours are specific to this worker:
 

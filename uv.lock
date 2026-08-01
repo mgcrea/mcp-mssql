@@ -312,7 +312,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "mcp", specifier = ">=1.26.0,<2" },
     { name = "mcp-policy-guard", specifier = ">=0.3" },
     { name = "pymssql", specifier = ">=2.3.0" },
     { name = "sqlglot", specifier = ">=30.14.0" },
