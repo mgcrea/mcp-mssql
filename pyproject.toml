@@ -19,7 +19,13 @@ dependencies = [
     # Per-caller authentication and authorization. Resolved from PyPI, deliberately: a
     # `[tool.uv.sources]` path to a sibling checkout works locally but not in the Docker
     # build, whose context is this directory alone.
-    "mcp-policy-guard>=0.3",
+    #
+    # >=0.5 is a floor, not a preference. Before it, `MCP_REQUIRE_AUTH` refused the MCP
+    # discovery handshake as well as tool calls — and an agent runtime enumerates this
+    # server's tools at startup, when it holds no caller token and never will. The 401 made
+    # the runtime drop this server for the life of its process, so the tool did not appear
+    # to say no; it appeared not to exist.
+    "mcp-policy-guard>=0.5",
 ]
 
 [project.scripts]
