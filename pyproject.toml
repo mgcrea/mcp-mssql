@@ -25,7 +25,7 @@ dependencies = [
     # server's tools at startup, when it holds no caller token and never will. The 401 made
     # the runtime drop this server for the life of its process, so the tool did not appear
     # to say no; it appeared not to exist.
-    "mcp-policy-guard>=0.5",
+    "mcp-policy-guard>=0.5.1",
 ]
 
 [project.scripts]
