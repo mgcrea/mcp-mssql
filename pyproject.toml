@@ -25,7 +25,12 @@ dependencies = [
     # server's tools at startup, when it holds no caller token and never will. The 401 made
     # the runtime drop this server for the life of its process, so the tool did not appear
     # to say no; it appeared not to exist.
-    "mcp-policy-guard>=0.5.1",
+    # >=0.6.0 for row predicates: the tool reads `Decision.filters` and rewrites the query
+    # around them. An older guard does not populate that field, so the predicate would be
+    # silently dropped and every row returned — which is why this floor is not merely a
+    # convenience. The backend enforces the same floor from its side, refusing to send
+    # predicates to a guard below it.
+    "mcp-policy-guard>=0.6.0",
 ]
 
 [project.scripts]

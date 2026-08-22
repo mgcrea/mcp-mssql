@@ -97,7 +97,7 @@ def extract_referenced_tables(query: str, *, database: str | None = None) -> set
 
     tables: set[str] = set()
     for table in statement.find_all(exp.Table):
-        resolved = _resolve(table, cte_names=cte_names, database=database)
+        resolved = resolve_table_reference(table, cte_names=cte_names, database=database)
         if resolved is not None:
             tables.add(resolved)
     return tables
@@ -120,8 +120,14 @@ def _assert_analyzable_sources(statement: exp.Expression) -> None:
             )
 
 
-def _resolve(table: exp.Table, *, cte_names: set[str], database: str | None) -> str | None:
-    """One table node to `schema.table`, or None when it is not a real table."""
+def resolve_table_reference(table: exp.Table, *, cte_names: set[str], database: str | None) -> str | None:
+    """One table node to `schema.table`, or None when it is not a real table.
+
+    Public because `column_extraction` needs the *same* answer when it maps a column's alias
+    back to a real table. Two implementations of the four-part-name, cross-database and CTE
+    rules would be free to disagree, and a disagreement here reads as a column authorized
+    against the wrong table.
+    """
     parts = list(table.parts)
     name = table.name
 

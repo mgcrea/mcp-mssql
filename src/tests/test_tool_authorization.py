@@ -9,10 +9,12 @@ responses where that distinction would be an enumeration oracle.
 from __future__ import annotations
 
 import asyncio
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from mcp_policy_guard import Decision, PolicyDenied
+from mcp_policy_guard import Decision, PolicyDenied, Resource, RowFilter
 
 import mcp_mssql.tools.mssql as tools
 
@@ -244,6 +246,192 @@ class TestDiscoveryScoping:
         # Distinguishing the two would confirm the table is real — the enumeration oracle
         # that filtering `mssql_list_tables` exists to avoid, rebuilt one name at a time.
         assert denied == absent
+
+
+class TestColumnAuthorization:
+    """The column read set, and what it costs to compute.
+
+    Column scoping exists so a table can stay *joinable* while some of its columns stay
+    unreachable — the PerfTrack shape, where personal fields share a join with performance
+    data the caller may legitimately read.
+    """
+
+    @pytest.fixture
+    def governed(self, monkeypatch):
+        """A tool with a PDP configured, a seeded schema cache, and a controllable snapshot.
+
+        The cache is seeded rather than served through the fake cursor because the catalogue
+        read and the query would otherwise share one cursor and drain each other's rows.
+        """
+
+        def _governed(*, allows=lambda _kind, _value: True):
+            monkeypatch.setattr(tools.guard, "config", SimpleNamespace(policy_enabled=True))
+            monkeypatch.setattr(tools.guard, "snapshot", lambda *_a, **_k: SimpleNamespace(allows=allows))
+            monkeypatch.setitem(
+                tools._schema_cache,
+                "dbo.perfusers",
+                (time.monotonic() + 3600, frozenset({"id", "fullname", "dateofbirth"})),
+            )
+
+        return _governed
+
+    def test_submits_every_column_the_query_reads(self, call, monkeypatch, governed):
+        governed()
+        require = MagicMock(return_value=ALLOWED)
+        monkeypatch.setattr(tools.guard, "require", require)
+
+        call("mssql_query", "SELECT FullName FROM dbo.PerfUsers")
+
+        submitted = {str(resource) for resource in require.call_args.args[1]}
+        assert submitted == {"sql_table:dbo.perfusers", "sql_column:dbo.perfusers.fullname"}
+
+    def test_a_star_submits_the_personal_columns_it_would_return(self, call, monkeypatch, governed):
+        # The case the feature exists for: `SELECT *` must not be authorized as though it
+        # read only the columns someone remembered to name.
+        governed()
+        require = MagicMock(return_value=ALLOWED)
+        monkeypatch.setattr(tools.guard, "require", require)
+
+        call("mssql_query", "SELECT * FROM dbo.PerfUsers")
+
+        submitted = {str(resource) for resource in require.call_args.args[1]}
+        assert "sql_column:dbo.perfusers.dateofbirth" in submitted
+
+    def test_no_columns_are_submitted_when_no_pdp_is_configured(self, call, monkeypatch):
+        # A tool running without policy must behave exactly as it did before columns existed:
+        # no catalogue read, and no chance of an extraction failure denying an ungoverned query.
+        monkeypatch.setattr(tools.guard, "config", SimpleNamespace(policy_enabled=False))
+        require = MagicMock(return_value=ALLOWED)
+        monkeypatch.setattr(tools.guard, "require", require)
+
+        call("mssql_query", "SELECT FullName FROM dbo.PerfUsers")
+
+        submitted = {str(resource) for resource in require.call_args.args[1]}
+        assert submitted == {"sql_table:dbo.perfusers"}
+
+    def test_a_table_the_snapshot_denies_causes_no_catalogue_read(self, call, monkeypatch, governed):
+        # The call is about to be denied on that table anyway. Skipping keeps a caller who may
+        # not read a table from causing an INFORMATION_SCHEMA lookup for it.
+        governed(allows=lambda _kind, _value: False)
+        require = MagicMock(return_value=ALLOWED)
+        monkeypatch.setattr(tools.guard, "require", require)
+
+        call("mssql_query", "SELECT FullName FROM dbo.PerfUsers")
+
+        submitted = {str(resource) for resource in require.call_args.args[1]}
+        assert submitted == {"sql_table:dbo.perfusers"}
+
+    def test_an_unknown_table_is_refused_rather_than_authorized_against_nothing(self, call, monkeypatch, governed):
+        # sqlglot returns ZERO columns for a table it has no schema for, which on an allow-list
+        # reads as "touches nothing". The extractor refuses instead; assert the tool does too.
+        governed()
+        monkeypatch.setattr(tools.guard, "require", MagicMock(return_value=ALLOWED))
+
+        result = call("mssql_query", "SELECT * FROM dbo.SomethingElse")
+
+        assert "Error:" in result
+
+    def test_describe_table_hides_columns_the_caller_may_not_read(self, call, monkeypatch, governed):
+        governed(allows=lambda kind, value: not value.endswith(".dateofbirth"))
+        rows = [
+            ("Id", "int", None, "NO", None),
+            ("FullName", "varchar", 100, "YES", None),
+            ("DateOfBirth", "date", None, "YES", None),
+        ]
+
+        result = call("mssql_describe_table", "PerfUsers", "dbo", rows=rows)
+
+        assert "FullName" in result
+        # The name itself is the sensitive part — knowing the column exists is most of it.
+        assert "DateOfBirth" not in result
+
+    def test_describe_table_looks_absent_when_every_column_is_denied(self, call, monkeypatch, governed):
+        governed(allows=lambda kind, _value: kind != tools.SQL_COLUMN)
+        rows = [("DateOfBirth", "date", None, "YES", None)]
+
+        assert call("mssql_describe_table", "PerfUsers", "dbo", rows=rows) == "Table 'dbo.PerfUsers' not found"
+
+
+class TestRowFilterApplication:
+    """The decision may allow a table and still narrow which rows it yields."""
+
+    @pytest.fixture
+    def governed(self, monkeypatch):
+        monkeypatch.setattr(tools.guard, "config", SimpleNamespace(policy_enabled=True))
+        monkeypatch.setattr(tools.guard, "snapshot", lambda *_a, **_k: SimpleNamespace(allows=lambda _k2, _v: True))
+        monkeypatch.setitem(
+            tools._schema_cache,
+            "dbo.perfevents",
+            (time.monotonic() + 3600, frozenset({"id", "pph", "district"})),
+        )
+
+    def _decision(self, **overrides):
+        return Decision(
+            decision="allow",
+            effect="allow",
+            enforcing=True,
+            reason="ok",
+            **overrides,
+        )
+
+    def test_rewrites_the_query_before_executing_it(self, call, monkeypatch, governed):
+        executed: list[str] = []
+        decision = self._decision(
+            filters=(
+                RowFilter(
+                    resource=Resource("sql_table", "dbo.perfevents"),
+                    column="district",
+                    operator="in_",
+                    values=("D775",),
+                ),
+            )
+        )
+        monkeypatch.setattr(tools.guard, "require", lambda *_a, **_k: decision)
+
+        original_execute = FakeCursor.execute
+
+        def capture(self, sql, params=None):
+            executed.append(sql)
+            return original_execute(self, sql, params)
+
+        monkeypatch.setattr(FakeCursor, "execute", capture)
+
+        call("mssql_query", "SELECT PPH FROM dbo.PerfEvents")
+
+        # The last statement executed is the user's query, rewritten.
+        assert any("WHERE district IN ('D775')" in sql for sql in executed)
+
+    def test_refuses_when_the_predicate_cannot_be_applied(self, call, monkeypatch, governed):
+        # A predicate naming a column the table does not have would otherwise reach the
+        # database and fail there, after the connection was opened.
+        decision = self._decision(
+            filters=(
+                RowFilter(
+                    resource=Resource("sql_table", "dbo.perfevents"),
+                    column="nosuchcolumn",
+                    operator="in_",
+                    values=("D775",),
+                ),
+            )
+        )
+        monkeypatch.setattr(tools.guard, "require", lambda *_a, **_k: decision)
+
+        assert "Error:" in call("mssql_query", "SELECT PPH FROM dbo.PerfEvents")
+
+    def test_an_unfiltered_decision_executes_the_query_verbatim(self, call, monkeypatch, governed):
+        monkeypatch.setattr(tools.guard, "require", lambda *_a, **_k: self._decision())
+        executed: list[str] = []
+        original_execute = FakeCursor.execute
+
+        def capture(self, sql, params=None):
+            executed.append(sql)
+            return original_execute(self, sql, params)
+
+        monkeypatch.setattr(FakeCursor, "execute", capture)
+
+        call("mssql_query", "SELECT PPH FROM dbo.PerfEvents")
+
+        assert "SELECT PPH FROM dbo.PerfEvents" in executed
 
 
 class TestRowCap:
