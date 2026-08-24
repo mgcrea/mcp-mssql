@@ -77,11 +77,7 @@ def schema_lookup_sql(tables: Sequence[str]) -> tuple[str, list[str]]:
     """
     pairs = [table.split(".", 1) for table in tables]
     predicate = " OR ".join(["(LOWER(TABLE_SCHEMA) = %s AND LOWER(TABLE_NAME) = %s)"] * len(pairs))
-    sql = (
-        "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME "
-        "FROM INFORMATION_SCHEMA.COLUMNS "
-        f"WHERE {predicate}"
-    )
+    sql = f"SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE {predicate}"
     return sql, [part for pair in pairs for part in pair]
 
 
