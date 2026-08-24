@@ -20,7 +20,7 @@ structlog.configure(
     cache_logger_on_first_use=True,
 )
 
-from mcp.server.fastmcp import FastMCP  # noqa: E402
+from mcp.server.mcpserver import MCPServer  # noqa: E402
 from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 from mcp_policy_guard import routes as guard_routes  # noqa: E402
 
@@ -31,16 +31,24 @@ logger = structlog.get_logger()
 NAME = "mcp-mssql"
 VERSION = "0.1.0"
 
-# K8S internal service — no DNS rebinding protection needed
+# K8S internal service — no DNS rebinding protection needed.
+#
+# This must be passed explicitly, and passing nothing is NOT equivalent. On SDK 2.x
+# `streamable_http_app()` defaults `host` to "127.0.0.1", and on that default it
+# *auto-enables* rebinding protection with a localhost-only allow-list. Every request
+# reaching this pod under its real service hostname would then be answered
+# `421 Invalid Host header` — in K8S, that is every request there is.
 security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-mcp = FastMCP(name=NAME, transport_security=security_settings, streamable_http_path="/mcp")
+# Transport options left the constructor in 2.x; they now live only on the app builders,
+# which `guard_routes` forwards to via `app_kwargs`.
+mcp = MCPServer(name=NAME, version=VERSION)
 
 register_mssql_tools(mcp)
 logger.info("registered_mssql_tools")
 
 
-def register_platform_resources(mcp: FastMCP) -> int:
+def register_platform_resources(mcp: MCPServer) -> int:
     """Register resources injected by the platform via MCP_RESOURCES env var.
 
     The platform serializes assigned resources as a JSON object:
@@ -132,6 +140,8 @@ def main():
             mcp,
             guard.config,
             extra_routes=[Route("/healthz", healthz), Route("/", root)],
+            app_kwargs={"transport_security": security_settings, "streamable_http_path": "/mcp"},
+            sse_app_kwargs={"transport_security": security_settings},
         ),
         lifespan=lifespan,
     )

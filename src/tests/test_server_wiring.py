@@ -60,7 +60,7 @@ class TestEveryToolIsGuarded:
         # dropped `functools.wraps` would publish a tool taking `(*args, **kwargs)` — no
         # parameters at all — and the model would simply stop being able to call it.
         published = next(t for t in asyncio.run(server.mcp.list_tools()) if t.name == tool)
-        assert set(published.inputSchema["properties"]) == expected
+        assert set(published.input_schema["properties"]) == expected
 
 
 class TestRouteOrdering:

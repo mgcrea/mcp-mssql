@@ -5,7 +5,7 @@ import os
 import time
 
 import pymssql
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp_policy_guard import Guard, PolicyDenied, Resource, audit_call, guarded
 
 from ..column_extraction import extract_referenced_columns
@@ -56,7 +56,7 @@ guard = Guard()
 _schema_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
 
-def register_mssql_tools(mcp: FastMCP) -> None:
+def register_mssql_tools(mcp: MCPServer) -> None:
     """Register MSSQL tools with the MCP server."""
 
     def _get_connection():

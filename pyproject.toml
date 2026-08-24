@@ -5,10 +5,7 @@ license = "MIT"
 description = "MCP tool server — SQL Server access for AI agents"
 requires-python = ">=3.12"
 dependencies = [
-    # Upper bound is deliberate. `mcp` 2.0.0 removed `mcp.server.fastmcp` outright — no
-    # shim — so an unbounded range breaks `server.py` at import on the next resolve. The
-    # port to `MCPServer` waits on mcp-policy-guard's v2-only `GuardServerMiddleware`.
-    "mcp>=1.26.0,<2",
+    "mcp>=2.1.0",
     "uvicorn>=0.52.4",
     "starlette>=1.6.0",
     "pymssql>=2.3.13",
