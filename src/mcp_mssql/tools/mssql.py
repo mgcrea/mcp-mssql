@@ -3,6 +3,7 @@
 import asyncio
 import os
 import time
+from collections.abc import Sequence
 
 import pymssql
 from mcp.server.mcpserver import MCPServer
@@ -56,6 +57,34 @@ guard = Guard()
 _schema_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
 
+def schema_lookup_sql(tables: Sequence[str]) -> tuple[str, list[str]]:
+    """The INFORMATION_SCHEMA lookup for a set of `schema.table` names, as (sql, params).
+
+    Module-level, and returning the statement as text, so it can be asserted without a
+    database. That matters here more than it looks: every other test in this suite stubs the
+    cursor, so the statement itself was never executed against a real SQL Server — which is
+    exactly how a **Postgres-shaped row-value constructor** shipped green:
+
+        WHERE (LOWER(TABLE_SCHEMA), LOWER(TABLE_NAME)) IN ((%s, %s), (%s, %s))
+
+    T-SQL has no row-value constructor in an IN list. SQL Server answers with error 4145,
+    "An expression of non-boolean type specified in a context where a condition is expected,
+    near ','". Because this lookup runs for every query that names a table, it broke *every*
+    real query, while `SELECT 1` — which reads no table and skips the lookup — kept working.
+    That asymmetry made it read as a database or permissions fault rather than a syntax one.
+
+    OR'd pairs are the portable form. `test_schema_lookup_sql.py` pins the shape.
+    """
+    pairs = [table.split(".", 1) for table in tables]
+    predicate = " OR ".join(["(LOWER(TABLE_SCHEMA) = %s AND LOWER(TABLE_NAME) = %s)"] * len(pairs))
+    sql = (
+        "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME "
+        "FROM INFORMATION_SCHEMA.COLUMNS "
+        f"WHERE {predicate}"
+    )
+    return sql, [part for pair in pairs for part in pair]
+
+
 def register_mssql_tools(mcp: MCPServer) -> None:
     """Register MSSQL tools with the MCP server."""
 
@@ -93,18 +122,10 @@ def register_mssql_tools(mcp: MCPServer) -> None:
         if not stale:
             return fresh
 
-        pairs = [table.split(".", 1) for table in stale]
-        placeholders = ", ".join(["(%s, %s)"] * len(pairs))
+        sql, params = schema_lookup_sql(stale)
         with _get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE (LOWER(TABLE_SCHEMA), LOWER(TABLE_NAME)) IN ({placeholders})
-                    """,
-                    [part for pair in pairs for part in pair],
-                )
+                cur.execute(sql, params)
                 rows = cur.fetchall()
 
         loaded: dict[str, set[str]] = {}
