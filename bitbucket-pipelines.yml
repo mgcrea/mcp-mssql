@@ -36,8 +36,14 @@ pipelines:
           - apt-get update && apt-get install -y --no-install-recommends git
           - echo -n "${HARBOR_PASSWORD}" | docker login --username "${HARBOR_USERNAME}" --password-stdin "${HARBOR_REGISTRY}"
           - DOCKER_IMAGE=${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${BITBUCKET_REPO_SLUG}
-          - DOCKER_UNIQUE_TAG=${BITBUCKET_BRANCH}-${BITBUCKET_COMMIT:0:8}
-          - DOCKER_SHORT_TAG=${BITBUCKET_BRANCH}
+          # The image tag is the branch with any `rgis-` prefix stripped. The working branch
+          # here is `rgis-main` (it tracks the Bitbucket remote, while `origin` is the public
+          # GitHub mirror), so the raw branch name published `:rgis-main` — a tag nothing
+          # deploys. Workers track `:main`, so a green build simply never reached them, and
+          # the platform kept serving the previous digest with no error anywhere to explain it.
+          - DOCKER_TAG_BRANCH=${BITBUCKET_BRANCH#rgis-}
+          - DOCKER_UNIQUE_TAG=${DOCKER_TAG_BRANCH}-${BITBUCKET_COMMIT:0:8}
+          - DOCKER_SHORT_TAG=${DOCKER_TAG_BRANCH}
           - GIT_COMMIT_DATE=$(git log -1 --format=%ct)
           - >-
             docker build -t "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}" .
@@ -48,7 +54,7 @@ pipelines:
           - docker push "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}"
           - docker push "${DOCKER_IMAGE}:${DOCKER_SHORT_TAG}"
           - |
-            if [ "${BITBUCKET_BRANCH}" = "main" ]; then
+            if [ "${DOCKER_TAG_BRANCH}" = "main" ]; then
               docker tag "${DOCKER_IMAGE}:${DOCKER_UNIQUE_TAG}" "${DOCKER_IMAGE}:latest"
               docker push "${DOCKER_IMAGE}:latest"
             fi
