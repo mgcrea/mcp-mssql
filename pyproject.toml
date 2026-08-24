@@ -9,13 +9,13 @@ dependencies = [
     # shim — so an unbounded range breaks `server.py` at import on the next resolve. The
     # port to `MCPServer` waits on mcp-policy-guard's v2-only `GuardServerMiddleware`.
     "mcp>=1.26.0,<2",
-    "uvicorn>=0.32.0",
-    "starlette>=0.41.0",
-    "pymssql>=2.3.0",
-    "structlog>=24.0.0",
+    "uvicorn>=0.52.4",
+    "starlette>=1.6.0",
+    "pymssql>=2.3.13",
+    "structlog>=26.1.0",
     # Real T-SQL parsing for the table allow-list. A regex cannot do this job — see the
     # module docstring in src/mcp_mssql/table_extraction.py.
-    "sqlglot>=30.14.0",
+    "sqlglot>=30.17.0",
     # Per-caller authentication and authorization. Resolved from PyPI, deliberately: a
     # `[tool.uv.sources]` path to a sibling checkout works locally but not in the Docker
     # build, whose context is this directory alone.
@@ -38,9 +38,8 @@ mcp-mssql = "mcp_mssql.server:main"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.9.0",
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
+    "ruff>=0.16.4",
+    "pytest>=9.1.1",
 ]
 
 [build-system]
@@ -52,7 +51,6 @@ packages = ["src/mcp_mssql"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
-asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py312"
