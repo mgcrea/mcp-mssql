@@ -92,14 +92,37 @@ def extract_referenced_columns(
 
     cte_names = {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE)}
     sources = _source_map(statement, cte_names=cte_names, database=database)
+    select_aliases = _select_aliases(statement)
 
     columns: set[str] = set()
     for column in statement.find_all(exp.Column):
+        # A bare reference to a SELECT alias is a projection, not a read. `qualify` rewrites
+        # `ORDER BY COUNT(*)` into `ORDER BY n` for `COUNT(*) AS n`, which arrives here as an
+        # unqualified Column that belongs to no table — and `_table_for` would refuse the whole
+        # query. Skipping it loses nothing: whatever the alias names was already counted where
+        # it was defined, so `SELECT BirthDate AS n ... ORDER BY n` still reports BirthDate.
+        if not column.table and column.name.lower() in select_aliases:
+            continue
         table = _table_for(column, sources=sources, cte_names=cte_names)
         if table is None:
             continue
         columns.add(f"{table}.{column.name.lower()}")
     return columns
+
+
+def _select_aliases(statement: exp.Expression) -> set[str]:
+    """Every name introduced by `AS` in a projection, lowercased.
+
+    Collected across all SELECTs rather than per-scope. That is deliberately loose in the safe
+    direction only: the cost of over-collecting is skipping a bare column whose name matches an
+    alias somewhere else in the query, and T-SQL resolves such a name to the alias anyway.
+    """
+    aliases: set[str] = set()
+    for select in statement.find_all(exp.Select):
+        for projection in select.expressions:
+            if isinstance(projection, exp.Alias) and projection.alias:
+                aliases.add(projection.alias.lower())
+    return aliases
 
 
 def _nested_schema(schema_map: Mapping[str, Set[str]]) -> dict[str, dict[str, dict[str, str]]]:

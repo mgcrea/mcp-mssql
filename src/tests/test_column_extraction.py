@@ -152,3 +152,41 @@ class TestTheRequirement:
         assert "dbo.perfusers.nationalinsurancenumber" in columns(
             "SELECT u.NationalInsuranceNumber, e.PPH FROM dbo.PerfUsers u JOIN dbo.PerfEvents e ON e.UserId = u.Id"
         )
+
+
+class TestSelectAliases:
+    """A name introduced by `AS` is a projection, not a base-table read.
+
+    `qualify` rewrites `ORDER BY COUNT(*)` into `ORDER BY n` for `COUNT(*) AS n`. That arrives
+    as an unqualified column belonging to no table, and the fail-closed path refused the whole
+    query — denying every aggregate-with-alias query, which is most of what a reporting
+    assistant writes. Found against the live Sheffield replica.
+    """
+
+    SCHEMA = {"dbo.tbdat_employees": frozenset({"id", "districtid", "lastname", "birthdate"})}
+
+    def _columns(self, query: str) -> set[str]:
+        return extract_referenced_columns(query, schema_map=self.SCHEMA, database=None)
+
+    def test_order_by_an_aggregate_alias_is_not_a_column_read(self):
+        assert self._columns(
+            "SELECT TOP 5 DistrictID, COUNT(*) AS n FROM dbo.tbDat_Employees GROUP BY DistrictID ORDER BY COUNT(*) DESC"
+        ) == {"dbo.tbdat_employees.districtid"}
+
+    def test_an_alias_does_not_hide_the_column_it_names(self):
+        # The safety property: aliasing a denied column must not launder it out of the read
+        # set. `BirthDate` is still reported, from the projection that defines the alias.
+        assert self._columns("SELECT BirthDate AS n FROM dbo.tbDat_Employees ORDER BY n") == {
+            "dbo.tbdat_employees.birthdate"
+        }
+
+    def test_several_aliases_in_one_query(self):
+        assert self._columns(
+            "SELECT DistrictID AS d, COUNT(*) AS c FROM dbo.tbDat_Employees GROUP BY DistrictID ORDER BY c DESC"
+        ) == {"dbo.tbdat_employees.districtid"}
+
+    def test_a_genuinely_unresolvable_column_still_refuses(self):
+        # The alias skip must not become a general escape hatch: a bare name that matches no
+        # alias and no column is still the guess an allow-list cannot make.
+        with pytest.raises(ColumnExtractionError):
+            self._columns("SELECT nosuchcolumn FROM dbo.tbDat_Employees")
