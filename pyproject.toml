@@ -27,7 +27,7 @@ dependencies = [
     # silently dropped and every row returned — which is why this floor is not merely a
     # convenience. The backend enforces the same floor from its side, refusing to send
     # predicates to a guard below it.
-    "mcp-policy-guard>=0.6.0",
+    "mcp-policy-guard>=0.6.1",
 ]
 
 [project.scripts]
