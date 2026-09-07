@@ -241,9 +241,37 @@ def register_mssql_tools(mcp: MCPServer) -> None:
                 # `mcp_policy_guard.UNDETERMINED` exists for tools that would otherwise pass `[]`
                 # here — an empty list means "touches nothing" and would be *allowed*. This
                 # one returns instead, which is the same answer for one fewer round trip.
+                #
+                # Deliberately does NOT report to the PDP. A parse failure is the model
+                # emitting bad SQL, which is routine rather than exceptional; reporting each
+                # one would fill the platform's audit log with model noise and bury the
+                # infrastructure failures below, which are the ones worth seeing. The local
+                # `emit()` record already covers it.
                 record["decision"] = "deny"
                 record["reason"] = f"read set could not be established: {e}"
                 return f"Error: {e}"
+            except pymssql.Error as e:
+                # **Pre-decision infrastructure failure**, and the one this branch exists for.
+                # `_column_resources` reads INFORMATION_SCHEMA, so on a cache miss it opens a
+                # connection *before* any decision — and until now a login failure here escaped
+                # both handlers and propagated raw. The call is refused, correctly, but policy
+                # never ran, so it must not be recorded as a denial and the user must not be
+                # told they lack access to something.
+                #
+                # Note the asymmetry with the identical failure at execution below: with a warm
+                # schema cache the first connection is opened *after* `guard.require` passed and
+                # after the PDP already wrote an allow row. That one is an execution failure and
+                # reports nothing, or one call would produce both an allow and a not-evaluated
+                # row for the same query.
+                reason = f"could not establish the read set: {e}"
+                record["decision"] = "not_evaluated"
+                record["reason"] = reason
+                guard.report_not_evaluated("mssql_query", reason, [])
+                return (
+                    "Error: the database could not be reached to determine what this query "
+                    "reads, so it was not run. This is not an access decision — policy was "
+                    "never consulted. Retry, and report it if it persists."
+                )
 
             resources = [Resource(SQL_TABLE, table) for table in sorted(referenced)] + columns
             record["resources"] = [str(resource) for resource in resources]
@@ -300,19 +328,33 @@ def register_mssql_tools(mcp: MCPServer) -> None:
         simply sees a smaller database.
         """
         with audit_call("mssql_list_tables", {"schema": schema}) as record:
-            with _get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT TABLE_NAME
-                        FROM INFORMATION_SCHEMA.TABLES
-                        WHERE TABLE_SCHEMA = %s
-                        AND TABLE_TYPE = 'BASE TABLE'
-                        ORDER BY TABLE_NAME
-                        """,
-                        (schema,),
-                    )
-                    tables = [row[0] for row in cur.fetchall()]
+            # Unlike `mssql_query`, this always reads the catalogue before deciding anything —
+            # the listing *is* the input to the decision — so a connection failure here is
+            # unambiguously pre-decision, with no cache-warmth asymmetry to reason about.
+            try:
+                with _get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT TABLE_NAME
+                            FROM INFORMATION_SCHEMA.TABLES
+                            WHERE TABLE_SCHEMA = %s
+                            AND TABLE_TYPE = 'BASE TABLE'
+                            ORDER BY TABLE_NAME
+                            """,
+                            (schema,),
+                        )
+                        tables = [row[0] for row in cur.fetchall()]
+            except pymssql.Error as e:
+                reason = f"could not list tables to scope them: {e}"
+                record["decision"] = "not_evaluated"
+                record["reason"] = reason
+                guard.report_not_evaluated("mssql_list_tables", reason, [])
+                return (
+                    "Error: the database could not be reached to list its tables, so nothing "
+                    "was returned. This is not an access decision — policy was never "
+                    "consulted. Retry, and report it if it persists."
+                )
 
             try:
                 visible = guard.filter_resources(
