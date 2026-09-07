@@ -117,10 +117,15 @@ class TestPostDecisionFailureDoesNotReport:
         monkeypatch.setitem(tools._schema_cache, "dbo.orders", (time.monotonic() + 3600, frozenset({"id"})))
         connect = MagicMock(side_effect=pymssql.OperationalError("connection dropped mid-query"))
 
-        with pytest.raises(pymssql.OperationalError):
-            call_with("mssql_query", "SELECT id FROM dbo.orders", connect=connect)
+        # This used to assert the exception PROPAGATED, which was never the property under
+        # test — it was the absence of a handler, and FastMCP turned it into a generic string
+        # the model could not act on (see `test_execution_errors.py`). The execution path now
+        # returns a sentence; what must still hold, and what this test is for, is that it
+        # reports nothing to the PDP.
+        result = call_with("mssql_query", "SELECT id FROM dbo.orders", connect=connect)
 
         assert reports == []
+        assert result.startswith("Error: ")
 
 
 class TestParseFailuresDoNotReport:
