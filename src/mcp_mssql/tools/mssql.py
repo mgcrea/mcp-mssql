@@ -33,6 +33,12 @@ QUERY_TIMEOUT = int(os.environ.get("MSSQL_QUERY_TIMEOUT", "30"))
 # fully readable, one page at a time.
 MAX_ROWS = int(os.environ.get("MSSQL_MAX_ROWS", "1000"))
 
+# DB-Lib and Net-Lib client failures are numbered from 20000 up; anything below that number
+# came from SQL Server itself and is about the statement the model wrote.
+DBLIB_ERROR_FLOOR = 20000
+# A SQL Server message can quote the offending value, so it is bounded before it reaches a prompt.
+MAX_ERROR_CHARS = 500
+
 #: Selector kind the platform's policy store uses for SQL tables.
 SQL_TABLE = "sql_table"
 
@@ -303,21 +309,54 @@ def register_mssql_tools(mcp: MCPServer) -> None:
             if effective_query != query:
                 record["rewritten"] = True
 
-            with _get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(effective_query)
-                    columns = [desc[0] for desc in cur.description]
-                    rows = cur.fetchmany(MAX_ROWS)
-                    truncated = len(rows) == MAX_ROWS and cur.fetchone() is not None
+            try:
+                with _get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(effective_query)
+                        columns = [desc[0] for desc in cur.description]
+                        rows = cur.fetchmany(MAX_ROWS)
+                        truncated = len(rows) == MAX_ROWS and cur.fetchone() is not None
 
-                    result_lines = [" | ".join(columns)]
-                    result_lines.append("-" * len(result_lines[0]))
-                    for row in rows:
-                        result_lines.append(" | ".join(str(val) for val in row))
-                    if truncated:
-                        result_lines.append(f"\n[Truncated at {MAX_ROWS} rows. Narrow the query with WHERE or TOP.]")
+                        result_lines = [" | ".join(columns)]
+                        result_lines.append("-" * len(result_lines[0]))
+                        for row in rows:
+                            result_lines.append(" | ".join(str(val) for val in row))
+                        if truncated:
+                            result_lines.append(
+                                f"\n[Truncated at {MAX_ROWS} rows. Narrow the query with WHERE or TOP.]"
+                            )
 
-                    return "\n".join(result_lines)
+                        return "\n".join(result_lines)
+            except pymssql.Error as e:
+                # The last unhandled path in this function, and the expensive one. Every branch
+                # above returns a sentence the model can act on; this one used to let the
+                # exception escape into FastMCP, which replaced it with "Error executing tool
+                # mssql_query" and nothing else. Measured 2026-09-05: 208 occurrences, 72 chats,
+                # 11 users, 5 assistants. Blind, the model cannot correct its own SQL — on
+                # 2026-09-07 one reply re-sent a single failing query eleven times because the
+                # real answer, `Conversion failed when converting the varchar value 'EUR' to data
+                # type int.`, never reached it.
+                #
+                # Deliberately does NOT report to the PDP, which is the asymmetry the
+                # pre-decision handler above documents: `guard.require` already passed and the
+                # PDP already wrote an allow row, so reporting here would file a second row for
+                # one call.
+                detail = _sql_server_error_text(e)
+                if detail is None:
+                    # No SQL Server text means the statement never reached the server, so there
+                    # is nothing about the query to report — and the client-side text carries the
+                    # server address, which is why it is never passed on.
+                    record["reason"] = "execution failed before SQL Server answered"
+                    return (
+                        "Error: the database could not be reached while running this query, so it did not "
+                        "run. Policy allowed it — this is not an access decision, and not a problem with "
+                        "the query. Retry, and report it if it persists."
+                    )
+                record["reason"] = f"query failed: {detail}"
+                # Naming the column or table reveals nothing the model did not just write itself —
+                # the same reasoning `_denial_message` uses — and it is what lets it fix the query
+                # instead of re-sending it.
+                return f"Error: {detail}"
 
     def _sync_mssql_list_tables(schema: str) -> str:
         """Synchronous MSSQL list tables, scoped to what the caller may see.
@@ -501,6 +540,36 @@ def register_mssql_tools(mcp: MCPServer) -> None:
             Table structure with column names, types, and constraints.
         """
         return await asyncio.to_thread(_sync_mssql_describe_table, table_name, schema)
+
+
+def _sql_server_error_text(exc: pymssql.Error) -> str | None:
+    """The SQL Server message inside a pymssql error, or `None` when there is not one.
+
+    pymssql packs the two cases differently, and that difference is the whole discriminator:
+
+        SQL Server rejected the statement
+            args = (207, b"Invalid column name 'StatusName'.DB-Lib error message 20018, ...")
+        the client never reached SQL Server
+            args = ((20009, b"DB-Lib error message 20009, ... does not exist (10.0.0.5) ..."),)
+
+    Only the first describes something the model wrote, and only the first is safe to pass on:
+    the second quotes the server address in its text. The DB-Lib trailer is dropped from both —
+    it is the same boilerplate on every error and says nothing the caller can use.
+    """
+    args = getattr(exc, "args", ())
+    if args and isinstance(args[0], tuple):
+        args = args[0]
+    if len(args) < 2 or not isinstance(args[0], int):
+        return None
+    number, message = args[0], args[1]
+    if number >= DBLIB_ERROR_FLOOR:
+        return None
+    if isinstance(message, bytes | bytearray):
+        message = message.decode("utf-8", "replace")
+    text = str(message).split("DB-Lib error message")[0].strip()
+    if not text:
+        return None
+    return text[:MAX_ERROR_CHARS]
 
 
 def _denial_message(denied: PolicyDenied) -> str:
