@@ -456,3 +456,69 @@ class TestRowCap:
         result = call("mssql_query", "SELECT * FROM dbo.Orders", rows=[("a", 1)])
         assert "a | 1" in result
         assert "Truncated" not in result
+
+
+class TestScopeNoticeOnQueryResults:
+    """A row filter must announce itself, because otherwise nothing else does.
+
+    The predicate is applied by rewriting the query, so a scoped caller sees a valid query
+    return fewer rows — or none — with no reason given. In production an assistant handed an
+    empty result concluded the database replica was incomplete and told the user so.
+    """
+
+    SCOPED = Decision(
+        decision="allow",
+        effect="allow",
+        enforcing=True,
+        reason="ok",
+        filters=(
+            RowFilter(
+                resource=Resource("sql_table", "dbo.tbdat_timesheet"),
+                column="Employee_DistrictID",
+                operator="in_",
+                values=("155",),
+            ),
+        ),
+    )
+
+    #: The schema lookup runs on its own connection before the query does, and `fetchall`
+    #: drains the cursor — so each needs its own, in that order.
+    SCHEMA_ROWS = [
+        ("dbo", "tbDat_TimeSheet", "EmployeeID"),
+        ("dbo", "tbDat_TimeSheet", "Employee_DistrictID"),
+    ]
+
+    def _connect(self, data_rows):
+        schema = FakeConnection(FakeCursor(self.SCHEMA_ROWS, (("a",), ("b",), ("c",))))
+        data = FakeConnection(FakeCursor(data_rows, (("EmployeeID",),)))
+        return MagicMock(side_effect=[schema, data])
+
+    def test_notice_is_appended_when_a_filter_narrowed_the_rows(self, call, monkeypatch):
+        monkeypatch.setattr(tools.guard, "require", lambda *_a, **_k: self.SCOPED)
+        out = call(
+            "mssql_query",
+            "SELECT EmployeeID FROM dbo.tbDat_TimeSheet",
+            connect=self._connect([("e1",)]),
+        )
+        assert "Scoped by access policy" in out
+        assert "dbo.tbdat_timesheet.Employee_DistrictID in (155)" in out
+
+    def test_notice_is_present_even_when_no_rows_come_back(self, call, monkeypatch):
+        """The case that caused the bug: an empty result is where the explanation is needed."""
+        monkeypatch.setattr(tools.guard, "require", lambda *_a, **_k: self.SCOPED)
+        out = call(
+            "mssql_query",
+            "SELECT EmployeeID FROM dbo.tbDat_TimeSheet",
+            connect=self._connect([]),
+        )
+        assert "your access rather than missing data" in out
+
+    def test_an_unscoped_query_says_nothing_about_scoping(self, call):
+        """No filters, no notice — output must stay byte-identical for ungoverned tools."""
+        out = call(
+            "mssql_query",
+            "SELECT EmployeeID FROM dbo.tbDat_TimeSheet",
+            rows=[("e1",)],
+            description=(("EmployeeID",),),
+        )
+        assert "Scoped by access policy" not in out

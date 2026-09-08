@@ -346,7 +346,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mcp", specifier = ">=2.1.0" },
-    { name = "mcp-policy-guard", specifier = ">=0.8.0" },
+    { name = "mcp-policy-guard", specifier = ">=0.9.0" },
     { name = "pymssql", specifier = ">=2.3.13" },
     { name = "sqlglot", specifier = ">=30.17.0" },
     { name = "starlette", specifier = ">=1.6.0" },
@@ -362,7 +362,7 @@ dev = [
 
 [[package]]
 name = "mcp-policy-guard"
-version = "0.8.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -370,9 +370,9 @@ dependencies = [
     { name = "pyjwt", extra = ["crypto"] },
     { name = "structlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/52/08be1b3c44ba99f507cbb0e45f643cb442d4367b6718de95fac4b026ac2c/mcp_policy_guard-0.8.0.tar.gz", hash = "sha256:a2f8cc5ba19dd65c1e45727a5c13bf58321dfa4961dc31867c7d6fd6270f845e", size = 123852, upload-time = "2026-09-07T20:53:06.82Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/bd/a91f4133d438a676eade236f1738b3c36e0382950f56a452a007257faa6f/mcp_policy_guard-0.9.0.tar.gz", hash = "sha256:b453d95d64e716192a50d6c742267c746911d2a9abca5e040ba3ad2ffac4be09", size = 124865, upload-time = "2026-09-08T22:00:56.773Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/0f/42548bc3bfb65cea89f5799370314bf844bc4490908037314d96fff92e04/mcp_policy_guard-0.8.0-py3-none-any.whl", hash = "sha256:bc5f0576971d00ffa6bd3fd435c204bc8a265574618d9c895cec3708bcd3ac65", size = 45991, upload-time = "2026-09-07T20:53:05.774Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/33/66ad5af914b41a3c957db5927e562cd8629b58ca065eee8604d626ef8e05/mcp_policy_guard-0.9.0-py3-none-any.whl", hash = "sha256:926fd7176b4f3a9e74bfb3ecf1dad1dbc87ebc6b4f9c21c4daf61f560feef642", size = 46558, upload-time = "2026-09-08T22:00:55.579Z" },
 ]
 
 [[package]]

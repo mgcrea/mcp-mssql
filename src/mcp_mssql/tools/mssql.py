@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 import pymssql
 from mcp.server.mcpserver import MCPServer
-from mcp_policy_guard import Guard, PolicyDenied, Resource, audit_call, guarded
+from mcp_policy_guard import Guard, PolicyDenied, Resource, audit_call, guarded, scope_notice
 
 from ..column_extraction import extract_referenced_columns
 from ..config import get_config
@@ -325,6 +325,17 @@ def register_mssql_tools(mcp: MCPServer) -> None:
                             result_lines.append(
                                 f"\n[Truncated at {MAX_ROWS} rows. Narrow the query with WHERE or TOP.]"
                             )
+
+                        # Say so when the rewrite narrowed the rows. Without this the scoping is
+                        # invisible: the caller sees a valid query return few rows or none, with
+                        # nothing to distinguish "you may not see these" from "these do not
+                        # exist", and reaches for the second — observed in the field as an
+                        # assistant telling a user the database replica was incomplete. It
+                        # matters most when `rows` is empty, which is exactly when there is
+                        # otherwise no output at all to hang the explanation on.
+                        notice = scope_notice(getattr(decision, "filters", ()))
+                        if notice:
+                            result_lines.append(f"\n{notice}")
 
                         return "\n".join(result_lines)
             except pymssql.Error as e:
