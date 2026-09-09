@@ -3,6 +3,7 @@
 import contextlib
 import json
 import os
+import pathlib
 
 import structlog
 
@@ -48,17 +49,55 @@ register_mssql_tools(mcp)
 logger.info("registered_mssql_tools")
 
 
+_resources_cache: dict | None = None
+_resources_mtime: float | None = None
+
+
+def _load_platform_resources() -> dict:
+    """The platform's assigned resources, as {slug: {name, description, text}}.
+
+    Two delivery routes, and the file wins. `MCP_RESOURCES_PATH` points at a file mounted from
+    the worker's ConfigMap; `MCP_RESOURCES` is the original environment variable, which Linux
+    caps at 131071 bytes for the whole `NAME=VALUE` — a limit the assigned documents outgrew.
+    The platform writes both while the value still fits, so an old image and a new one both
+    work and the two sides can be released in either order.
+
+    Parsed once and re-parsed only when the file's mtime moves. A `stat` per call is free; the
+    parse is not, since one payload runs to a couple of hundred kilobytes. The mtime check
+    rather than a plain import-time parse is what lets a ConfigMap update reach a running pod
+    later, when the platform learns to rewrite it outside a deploy — today nothing does, so
+    this is equivalent to parsing once, and it costs eight lines to not have to remember.
+    """
+    global _resources_cache, _resources_mtime
+
+    path = os.environ.get("MCP_RESOURCES_PATH")
+    if path:
+        try:
+            mtime = pathlib.Path(path).stat().st_mtime
+        except FileNotFoundError:
+            # The variable is injected before every runtime can read the file, so a missing
+            # mount is a rollout state rather than an error. Fall through to the env var.
+            pass
+        else:
+            if _resources_cache is None or mtime != _resources_mtime:
+                _resources_cache = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+                _resources_mtime = mtime
+            return _resources_cache
+
+    raw = os.environ.get("MCP_RESOURCES")
+    return json.loads(raw) if raw else {}
+
+
 def register_platform_resources(mcp: MCPServer) -> int:
-    """Register resources injected by the platform via MCP_RESOURCES env var.
+    """Register resources the platform assigned to this worker.
 
     The platform serializes assigned resources as a JSON object:
     {"slug": {"name": "...", "description": "...", "text": "..."}, ...}
     """
-    raw = os.environ.get("MCP_RESOURCES")
-    if not raw:
+    resources = _load_platform_resources()
+    if not resources:
         return 0
 
-    resources = json.loads(raw)
     for slug, meta in resources.items():
         text = meta["text"]
 
@@ -70,7 +109,11 @@ def register_platform_resources(mcp: MCPServer) -> int:
                 mime_type="text/plain",
             )
             def _read() -> str:
-                return content
+                # Resolved through the loader rather than returned from the closure, so a
+                # refreshed file is picked up. `content` is the value captured at registration
+                # and is the fallback for a slug that has since been removed — the resource
+                # list itself is fixed at import either way.
+                return _load_platform_resources().get(s, {}).get("text", content)
 
         _make_reader(slug, meta, text)
 
